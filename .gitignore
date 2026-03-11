@@ -1,0 +1,35 @@
+*.pyc
+*.log
+node_modules
+coverage/
+modeling_demo/logs
+modeling_demo/export_deliverables
+modeling_demo/cantaloupe/*
+modeling_demo/staticfiles
+modeling_demo/media/packages
+modeling_demo/media/build/
+modeling_demo/uploadedfiles/*
+modeling_demo/settings_local.py
+webpack-stats.json
+.vscode/
+*.egg-info
+.DS_STORE
+CACHE
+frontend_configuration
+
+# Packaging
+build/
+dist/
+
+# Docker — generated from arches-docker, do not edit here
+docker/entrypoint.sh
+docker/supervisor.conf
+**/settings_local.py
+docker/conf.d/
+docker/nginx/
+docker-compose.yml
+docker-compose.dev.yml
+docker-compose.override.yml
+Makefile
+docker/development/env_file.env
+docker/.internal/

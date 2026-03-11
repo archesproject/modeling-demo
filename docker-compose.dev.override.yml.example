@@ -1,0 +1,24 @@
+# Developer overrides — copy this to docker-compose.dev.override.yml and customize.
+#
+# Automatically included by `make docker-dev` (and other dev targets) if the file exists.
+# Gitignored so each developer can customize without affecting others.
+#
+# Mount sibling packages here for editable development. The pre_dev.sh hook
+# will auto-detect any package mounted under /opt/ that has a pyproject.toml
+# and install it with `pip install -e`.
+#
+# Both the project service and webpack must have the same mounts so that
+# Django and webpack both resolve @/ aliases to the live source tree.
+
+services:
+    modeling-demo:
+        volumes:
+            # - ../arches-mypackage:/opt/arches-mypackage
+            # SSH agent forwarding (macOS Docker Desktop):
+            # - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock
+        # environment:
+        #     SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
+
+    webpack:
+        volumes:
+            # - ../arches-mypackage:/opt/arches-mypackage
