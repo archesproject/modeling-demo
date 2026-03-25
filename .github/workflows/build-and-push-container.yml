@@ -73,6 +73,7 @@ jobs:
           cp arches-docker/settings_local.py project/docker/settings_local.py
           cp -r arches-docker/conf.d project/docker/
           cp -r arches-docker/nginx project/docker/
+          cp -r arches-docker/scaffold/templates/docker/.internal project/docker/
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
