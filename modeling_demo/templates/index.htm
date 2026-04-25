@@ -159,7 +159,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
                     {% if user|can_create_resource_instance and user.username != 'anonymous' %}
                     <li>
-                        <a href="{% url 'resource' %}" target="_blank">{% trans "Manage" %}</a>
+                        <a href="{% url 'graph' %}" target="_blank">{% trans "Arches Designer" %}</a>
                     </li>
                     {% endif %}
 
@@ -193,9 +193,8 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
                         <img src="{% webpack_static 'img/landing/Modelingdiagram.jpg' %}" alt="{% trans 'Diagram showing resource-instance link between Person and Building Resource Models.' %}" data-bgfit="cover" data-bgposition="center center" data-bgrepeat="no-repeat">
 
                         <div class="tp-caption sft start text-bold v5-splash-caption" style="left: 150px;" delay="4500" data-hoffset="0" data-y="400" data-speed="800" data-start="100" data-easing="Back.easeInOut" data-endspeed="300">
-                            <h2>{% trans "Arches Modeling Demo" %}</h2>
-                            <p>{% trans "Create Arches Resource Models" %}</p>
-                            <p>{% trans "using the Arches Designer" %}</p>
+                            <h2 style="margin-bottom: 0px;">{% trans "Arches Modeling Demo" %}</h2>
+                            <p style="font-size: 1rem; padding: 20px;">{% trans "Create Arches Resource Models using the Arches Designer" %}</p>
                         </div>
 
                         <div class="image-gradient"></div>
@@ -230,7 +229,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
     </div>
 
     <!-- Copyright Panel -->
-    <div class="copyright-container" style="position: absolute; bottom: 0px; width: 100%;">
+    <div class="copyright-container" style="position: absolute; bottom: 0px; width: 100%; padding: 20px 50px;">
         <div class="app-footer-links">
             <a class="app-footer-arches-link" href="http://www.archesproject.org" target="_blank">{% trans "Powered by Arches" %}</a>
         </div>
