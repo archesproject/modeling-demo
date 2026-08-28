@@ -5,12 +5,38 @@
 #
 # Each GitHub Environment requires the following variables:
 #   ECR_REPOSITORY  - e.g. mysite-repository
-#   AWS_ROLE        - e.g. arn:aws:iam::123456789012:role/my-github-role
-#   AWS_REGION      - e.g. us-west-1
+#   AWS_ROLE    - e.g. arn:aws:iam::123456789012:role/my-github-role
+#   AWS_REGION    - e.g. us-west-1
 #
 # The following must be set as repository-level variables (not environment-scoped):
-#   ARCHES_PROJECT          - e.g. arches-myproject
+#   ARCHES_PROJECT      - e.g. arches-myproject
 #   ARCHES_PROJECT_PACKAGE  - e.g. arches_myproject
+#   ARCHES_DOCKER_REF   - e.g. v1.0.0
+#
+# ARCHES_DOCKER_REF selects the arches-docker release this project builds
+# against. Four forms are accepted:
+#
+#   v1.2.3                    an exact release
+#   <40-char sha>             an exact commit
+#   v1                        the highest v1.*.* release  (minor + patch float)
+#   v1.2                      the highest v1.2.* release  (patch floats)
+#
+# Branch names are still rejected. A branch is unresolvable after the fact: an
+# unrelated push changes what was built and nothing records what that was. The
+# floating forms are not that — they resolve to a concrete tag and commit in the
+# setup job below, both arch builds consume the same resolved commit, and the
+# result is stamped onto the image as com.fargeo.arches-docker.{ref,sha} labels.
+# `docker inspect` therefore answers "what did this image build against?" even
+# for a floating pin.
+#
+# Trade-off to accept knowingly: with v1 or v1.2, the same project commit no
+# longer reproduces the same image over time — rolling the project back does not
+# roll the base image back with it. The labels are how you recover the pairing.
+# Use an exact form where that matters.
+#
+# Floating only means something if arches-docker tags every merge that changes
+# image behaviour; an untagged repo leaves v1 frozen at the last release while
+# looking like it tracks.
 #
 # And a repository secret:
 #   FARGEO_PAT  - GitHub PAT with read access to fargeo/arches-docker
@@ -32,10 +58,94 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.name }}
+      arches_docker_ref: ${{ steps.infra.outputs.ref }}
+      arches_docker_sha: ${{ steps.infra.outputs.sha }}
     steps:
       - name: Extract environment from branch
         id: env
         run: echo "name=${GITHUB_REF_NAME#deploy/}" >> $GITHUB_OUTPUT
+
+      # Resolve the arches-docker ref here, before any build job starts, so a
+      # missing or malformed ref fails once and fast rather than once per arch —
+      # and so both arch builds check out the same commit even if a release lands
+      # mid-run. An unset variable is especially dangerous to pass through:
+      # actions/checkout treats an empty `ref` as "use the default branch", which
+      # would silently restore the floating-on-main behaviour this step prevents.
+      - name: Resolve and validate arches-docker ref
+        id: infra
+        env:
+          ARCHES_DOCKER_REF: ${{ vars.ARCHES_DOCKER_REF }}
+          GH_TOKEN: ${{ secrets.FARGEO_PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ARCHES_DOCKER_REF}" ]; then
+            echo "::error::ARCHES_DOCKER_REF repository variable is not set. Set an arches-docker release (v1.2.3), a major/minor line (v1 or v1.2), or a full 40-character commit SHA. See arches-docker UPGRADING.md."
+            exit 1
+          fi
+
+          # Resolve to a commit SHA in every case, including for an exact tag: a
+          # tag can be moved, a commit cannot, and checking out the SHA means a
+          # retagged release cannot change what this build compiled.
+          resolve_tag() {
+            # $1 is the tag to look up exactly.
+            gh api --paginate repos/fargeo/arches-docker/tags \
+              --jq ".[] | select(.name == \"$1\") | .commit.sha" | head -1
+          }
+
+          # Highest vX.Y.Z tag under a major (v1) or minor (v1.2) line. The
+          # trailing dot on the prefix keeps v1 from matching v11.0.0, and v1.2
+          # from matching v1.20.0. sort -V orders 1.10.0 after 1.9.0, which a
+          # lexical sort does not.
+          resolve_line() {
+            gh api --paginate repos/fargeo/arches-docker/tags \
+              --jq '.[] | [.name, .commit.sha] | @tsv' \
+              | awk -v pre="$1." '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && index($1, pre) == 1' \
+              | sort -V -k1,1 \
+              | tail -1
+          }
+
+          case "${ARCHES_DOCKER_REF}" in
+            v[0-9]*.[0-9]*.[0-9]*)
+              if [[ ! "${ARCHES_DOCKER_REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::ARCHES_DOCKER_REF is '${ARCHES_DOCKER_REF}', which is not a valid release tag. Use vMAJOR.MINOR.PATCH."
+                exit 1
+              fi
+              VERSION="${ARCHES_DOCKER_REF}"
+              SHA=$(resolve_tag "${VERSION}")
+              if [ -z "${SHA}" ]; then
+                echo "::error::arches-docker has no tag ${VERSION}."
+                exit 1
+              fi
+              ;;
+            v[0-9]*.[0-9]*|v[0-9]*)
+              if [[ ! "${ARCHES_DOCKER_REF}" =~ ^v[0-9]+(\.[0-9]+)?$ ]]; then
+                echo "::error::ARCHES_DOCKER_REF is '${ARCHES_DOCKER_REF}', which is not a valid release line. Use vMAJOR or vMAJOR.MINOR."
+                exit 1
+              fi
+              MATCH=$(resolve_line "${ARCHES_DOCKER_REF}")
+              if [ -z "${MATCH}" ]; then
+                echo "::error::arches-docker has no released tag in the ${ARCHES_DOCKER_REF} line. Tag a release, or pin an exact tag or commit SHA."
+                exit 1
+              fi
+              VERSION=$(echo "${MATCH}" | cut -f1)
+              SHA=$(echo "${MATCH}" | cut -f2)
+              echo "${ARCHES_DOCKER_REF} resolved to ${VERSION}"
+              ;;
+            *)
+              if [[ ! "${ARCHES_DOCKER_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::ARCHES_DOCKER_REF is '${ARCHES_DOCKER_REF}', which is neither a release (v1.2.3), a release line (v1 or v1.2), nor a full 40-character commit SHA. Branch names are not accepted."
+                exit 1
+              fi
+              VERSION="${ARCHES_DOCKER_REF}"
+              SHA="${ARCHES_DOCKER_REF}"
+              ;;
+          esac
+
+          echo "Building against arches-docker ${VERSION} (${SHA})"
+          echo "ref=${VERSION}" >> $GITHUB_OUTPUT
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "arches-docker \`${VERSION}\` (\`${SHA}\`), from \`ARCHES_DOCKER_REF=${ARCHES_DOCKER_REF}\`" >> $GITHUB_STEP_SUMMARY
 
   build:
     name: Build (${{ matrix.slug }})
@@ -58,22 +168,31 @@ jobs:
         with:
           path: project
 
+      # The resolved commit, not the ref that selected it: a tag moved between
+      # the setup job and here cannot change what this build compiles.
       - name: Checkout arches-docker
         uses: actions/checkout@v5
         with:
           repository: fargeo/arches-docker
-          ref: main
+          ref: ${{ needs.setup.outputs.arches_docker_sha }}
           token: ${{ secrets.FARGEO_PAT }}
           path: arches-docker
 
       - name: Prepare build context
         run: |
-          cp arches-docker/entrypoint.sh project/docker/entrypoint.sh
-          cp arches-docker/supervisor.conf project/docker/supervisor.conf
-          cp arches-docker/settings_local.py project/docker/settings_local.py
-          cp -r arches-docker/conf.d project/docker/
-          cp -r arches-docker/nginx project/docker/
-          cp -r arches-docker/scaffold/templates/docker/.internal project/docker/
+          mkdir -p project/.runtime
+          cp arches-docker/entrypoint.sh project/.runtime/entrypoint.sh
+          cp arches-docker/supervisor.conf project/.runtime/supervisor.conf
+          cp arches-docker/settings_local.py project/.runtime/settings_local.py
+          cp -r arches-docker/conf.d project/.runtime/
+          cp -r arches-docker/nginx project/.runtime/
+          cp -r arches-docker/scaffold/templates/.runtime/internal project/.runtime/
+          # build_deps.sh is project-owned and required by the Dockerfile COPY —
+          # create it if this project hasn't scaffolded one yet, but never
+          # overwrite an existing (committed) one.
+          mkdir -p project/.runtime/hooks
+          [ -f project/.runtime/hooks/build_deps.sh ] || cp arches-docker/scaffold/templates/.runtime/hooks/build_deps.sh project/.runtime/hooks/build_deps.sh
+          chmod +x project/.runtime/hooks/build_deps.sh
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -101,6 +220,15 @@ jobs:
           build-args: |
             ARCHES_PROJECT=${{ vars.ARCHES_PROJECT }}
             ARCHES_PROJECT_PACKAGE=${{ vars.ARCHES_PROJECT_PACKAGE }}
+          # What this image actually built against, so a floating ARCHES_DOCKER_REF
+          # stays auditable: `docker inspect` (or an ECR image-config read) answers
+          # it without the Actions log. The .selector label keeps the raw variable
+          # too — the difference between v1 and v1.2.0 is the interesting part when
+          # a build changes behaviour unexpectedly.
+          labels: |
+            com.fargeo.arches-docker.ref=${{ needs.setup.outputs.arches_docker_ref }}
+            com.fargeo.arches-docker.sha=${{ needs.setup.outputs.arches_docker_sha }}
+            com.fargeo.arches-docker.selector=${{ vars.ARCHES_DOCKER_REF }}
 
       - name: Export digest
         run: |
@@ -145,9 +273,9 @@ jobs:
       - name: Create and push manifest list
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ needs.setup.outputs.environment }}-${{ github.sha }}
         run: |
           REPO="${ECR_REGISTRY}/${{ vars.ECR_REPOSITORY }}"
           docker buildx imagetools create \
-            -t "${REPO}:${IMAGE_TAG}" \
-            $(printf "${REPO}@sha256:%s " $(ls /tmp/digests/))
+          -t "${REPO}:${IMAGE_TAG}" \
+          $(printf "${REPO}@sha256:%s " $(ls /tmp/digests/))
