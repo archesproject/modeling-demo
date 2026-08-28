@@ -14,7 +14,7 @@ jobs:
         image: postgis/postgis:14-3.4
         env:
           POSTGRES_PASSWORD: postgis
-          POSTGRES_DB: modeling_demo
+          POSTGRES_DB: {{ project_name }}
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
@@ -44,7 +44,7 @@ jobs:
         uses: ./.github/actions/build-and-test-branch
         with:
           secrets: ${{ toJSON(secrets) }}
-          project-name: 'modeling_demo'
+          project-name: '{{ project_name }}'
           branch-type: 'target'
 
   build_feature_branch:
@@ -55,7 +55,7 @@ jobs:
         image: postgis/postgis:14-3.4
         env:
           POSTGRES_PASSWORD: postgis
-          POSTGRES_DB: modeling_demo
+          POSTGRES_DB: {{ project_name }}
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
@@ -85,7 +85,7 @@ jobs:
         uses: ./.github/actions/build-and-test-branch
         with:
           secrets: ${{ toJSON(secrets) }}
-          project-name: 'modeling_demo'
+          project-name: '{{ project_name }}'
           branch-type: 'feature'
 
   check_frontend_coverage:
