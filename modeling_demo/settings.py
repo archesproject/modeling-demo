@@ -136,7 +136,7 @@ INSTALLED_APPS = (
     "modeling_demo",  # Ensure the project is listed before any other arches applications
     "arches_controlled_lists",
     "arches_querysets",
-    "arches_component_lab",
+    "arches_vue_components",
     "arches",
     "arches.app.models",
     "arches.management",
